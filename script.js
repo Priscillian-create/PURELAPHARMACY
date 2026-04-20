@@ -1,4 +1,4 @@
-﻿// Service Worker Registration
+// Service Worker Registration
 if (
   'serviceWorker' in navigator &&
   !window.location.hostname.includes('stackblitz')
@@ -1016,6 +1016,19 @@ window.addEventListener('offline', () => {
   document.getElementById('offline-indicator').classList.add('show');
 });
 
+function getAuthDisplayName(user) {
+  if (!user) return 'User';
+
+  const metadataName = user.user_metadata && user.user_metadata.name;
+  if (metadataName) return metadataName;
+
+  if (typeof user.email === 'string' && user.email) {
+    return user.email.split('@')[0];
+  }
+
+  return 'User';
+}
+
 // Authentication Module
 const AuthModule = {
   async signUp(email, password, name, role = 'cashier') {
@@ -1091,10 +1104,7 @@ const AuthModule = {
 
       const fallbackUser = {
         id: data.user.id,
-        name:
-          (data && data.user && data.user.user_metadata && data.user.user_metadata.name) ||
-          (data && data.user && data.user.email && data.user.email.split)('@')[0] ||
-          'User',
+        name: getAuthDisplayName(data && data.user),
         email: data.user.email,
         role: (data && data.user && data.user.user_metadata && data.user.user_metadata.role) || 'cashier',
         created_at: data.user.created_at,
@@ -1205,10 +1215,7 @@ const AuthModule = {
   async handleExistingSession(session, callback) {
     const fallbackUser = {
       id: session.user.id,
-      name:
-        (session && session.user && session.user.user_metadata && session.user.user_metadata.name) ||
-        (session && session.user && session.user.email && session.user.email.split)('@')[0] ||
-        'User',
+      name: getAuthDisplayName(session && session.user),
       email: session.user.email,
       role: (session && session.user && session.user.user_metadata && session.user.user_metadata.role) || 'cashier',
       created_at: session.user.created_at,
@@ -9153,10 +9160,7 @@ async function init() {
       if (!currentUser) {
         currentUser = {
           id: session.user.id,
-          name:
-            (session && session.user && session.user.user_metadata && session.user.user_metadata.name) ||
-            (session && session.user && session.user.email && session.user.email.split)('@')[0] ||
-            'User',
+          name: getAuthDisplayName(session && session.user),
           email: session.user.email,
           role: (session && session.user && session.user.user_metadata && session.user.user_metadata.role) || 'cashier',
           last_login: new Date().toISOString(),
@@ -9263,4 +9267,3 @@ window.deletePurchase = deletePurchase;
 window.viewProduct = viewProduct;
 window.acknowledgeAlert = acknowledgeAlert;
 window.resolveDiscrepancy = resolveDiscrepancy;
-
