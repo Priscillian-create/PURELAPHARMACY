@@ -1,9 +1,31 @@
+const isLocalDevHost =
+  window.location.hostname === 'localhost' ||
+  window.location.hostname === '127.0.0.1';
+
 // Service Worker Registration
-if (
-  'serviceWorker' in navigator &&
-  !window.location.hostname.includes('stackblitz')
-) {
-  window.addEventListener('load', () => {
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', async () => {
+    if (isLocalDevHost) {
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+        if ('caches' in window) {
+          const cacheKeys = await caches.keys();
+          await Promise.all(
+            cacheKeys
+              .filter((key) => key.startsWith('purela-pharmacy'))
+              .map((key) => caches.delete(key))
+          );
+        }
+        console.log('Service workers disabled for local development');
+      } catch (err) {
+        console.log('Failed to disable service worker locally:', err);
+      }
+      return;
+    }
+
+    if (window.location.hostname.includes('stackblitz')) return;
+
     navigator.serviceWorker
       .register('./service-worker.js')
       .then((registration) =>
@@ -61,7 +83,7 @@ window.addEventListener('unhandledrejection', (e) => {
     }
   } catch (_) {}
 });
-if (navigator.serviceWorker) {
+if (navigator.serviceWorker && !isLocalDevHost) {
   navigator.serviceWorker.addEventListener('message', (e) => {
     const d = e && e.data;
     if (d && d.type === 'SW_ACTIVATED') {
@@ -164,7 +186,8 @@ let expenses = [],
   profitData = [],
   categories = [],
   finishedProductReports = [],
-  customerRequests = [];
+  customerRequests = [],
+  treatmentRecords = [];
 let productSearchSeq = 0;
 let lastProductsFetchAt = 0;
 let lastSalesFetchAt = 0;
@@ -257,6 +280,7 @@ const STORAGE_KEYS = {
   CATEGORIES: 'pagerrysmart_categories',
   FINISHED_PRODUCT_REPORTS: 'pagerrysmart_finished_product_reports',
   CUSTOMER_REQUESTS: 'pagerrysmart_customer_requests',
+  TREATMENT_RECORDS: 'pagerrysmart_treatment_records',
   CUSTOMER_DISPLAY_STATE: 'pagerrysmart_customer_display_state',
 };
 function runMigrations(prev) {
@@ -433,6 +457,19 @@ function closeCustomerView() {
   updateCustomerViewButtons();
 }
 
+function isStandaloneAppMode() {
+  try {
+    return (
+      window.matchMedia('(display-mode: standalone)').matches ||
+      window.matchMedia('(display-mode: fullscreen)').matches ||
+      window.matchMedia('(display-mode: minimal-ui)').matches ||
+      window.navigator.standalone === true
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
 async function getCustomerViewTargetScreen() {
   if (typeof window.getScreenDetails !== 'function') return null;
   try {
@@ -472,10 +509,16 @@ async function openCustomerView() {
     './customer-display.html',
     window.location.href
   ).toString();
+  const standaloneMode = isStandaloneAppMode();
+  const popupTarget = standaloneMode
+    ? '_blank'
+    : 'purela_customer_display_window';
   const features = [
     'popup=yes',
     'resizable=yes',
     'scrollbars=yes',
+    'noopener=yes',
+    'noreferrer=yes',
     `left=${left}`,
     `top=${top}`,
     `width=${width}`,
@@ -483,7 +526,7 @@ async function openCustomerView() {
   ].join(',');
   const popup = window.open(
     popupUrl,
-    'purela_customer_display_window',
+    popupTarget,
     features
   );
 
@@ -523,7 +566,9 @@ async function openCustomerView() {
     showNotification(
       hadOpenWindow
         ? 'Customer view refreshed.'
-        : 'Customer view opened. Move it to the second screen if needed.',
+        : standaloneMode
+          ? 'Customer view opened in a separate window. Keep this window for the cashier.'
+          : 'Customer view opened. Move it to the second screen if needed.',
       'info'
     );
   }
@@ -3652,6 +3697,7 @@ function loadFromLocalStorage() {
     profitData = [];
     finishedProductReports = [];
     customerRequests = [];
+    treatmentRecords = [];
 
     // Load products
     const savedProducts = localStorage.getItem(STORAGE_KEYS.PRODUCTS);
@@ -3885,6 +3931,27 @@ function loadFromLocalStorage() {
         } catch (_) {}
       }
     }
+
+    const savedTreatmentRecords = localStorage.getItem(
+      STORAGE_KEYS.TREATMENT_RECORDS
+    );
+    if (savedTreatmentRecords) {
+      try {
+        const parsedTreatmentRecords = JSON.parse(savedTreatmentRecords);
+        if (Array.isArray(parsedTreatmentRecords)) {
+          treatmentRecords = parsedTreatmentRecords;
+        }
+      } catch (parseError) {
+        console.error(
+          'Error parsing treatment records from localStorage:',
+          parseError
+        );
+        treatmentRecords = [];
+        try {
+          localStorage.removeItem(STORAGE_KEYS.TREATMENT_RECORDS);
+        } catch (_) {}
+      }
+    }
   } catch (e) {
     console.error('Error loading data from localStorage:', e);
     // Reset to defaults on error
@@ -3900,6 +3967,7 @@ function loadFromLocalStorage() {
     categories = [];
     finishedProductReports = [];
     customerRequests = [];
+    treatmentRecords = [];
   }
 }
 
@@ -3928,6 +3996,10 @@ function saveToLocalStorage(options = {}) {
     localStorage.setItem(
       STORAGE_KEYS.CUSTOMER_REQUESTS,
       JSON.stringify(customerRequests)
+    );
+    localStorage.setItem(
+      STORAGE_KEYS.TREATMENT_RECORDS,
+      JSON.stringify(treatmentRecords)
     );
     localStorage.setItem('syncQueue', JSON.stringify(syncQueue));
 
@@ -3999,6 +4071,11 @@ function validateDataStructure() {
 
   if (!Array.isArray(customerRequests)) {
     customerRequests = [];
+    isValid = false;
+  }
+
+  if (!Array.isArray(treatmentRecords)) {
+    treatmentRecords = [];
     isValid = false;
   }
 
@@ -4851,6 +4928,337 @@ function createRequestBadge(statusText, className) {
   return badge;
 }
 
+function normalizeTreatmentStatus(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'completed') return 'completed';
+  if (normalized === 'followup_due') return 'followup_due';
+  return normalized === 'active' ? 'active' : '';
+}
+
+function getTodayDateString() {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getTreatmentFollowUpState(record) {
+  if (!record || !record.followUpDate) return 'none';
+  const followUpDate = new Date(record.followUpDate);
+  if (isNaN(followUpDate.getTime())) return 'none';
+
+  const today = new Date(getTodayDateString());
+  if (followUpDate < today) return 'overdue';
+  if (followUpDate.getTime() === today.getTime()) return 'due_today';
+  return 'upcoming';
+}
+
+function getEffectiveTreatmentStatus(record) {
+  const baseStatus = normalizeTreatmentStatus(record && record.status);
+  if (baseStatus === 'completed') return 'completed';
+  const followUpState = getTreatmentFollowUpState(record);
+  if (followUpState === 'overdue' || followUpState === 'due_today') {
+    return 'followup_due';
+  }
+  return baseStatus || 'active';
+}
+
+function createTreatmentStatusBadge(status) {
+  const badge = document.createElement('span');
+  badge.className = `treatment-status-badge ${status}`;
+  badge.textContent =
+    status === 'completed'
+      ? 'Completed'
+      : status === 'followup_due'
+      ? 'Follow-up Due'
+      : 'Active';
+  return badge;
+}
+
+function sortTreatmentRecords(list) {
+  return list.slice().sort((a, b) => {
+    const aDate = new Date(a.treatmentDate || a.createdAt || 0).getTime();
+    const bDate = new Date(b.treatmentDate || b.createdAt || 0).getTime();
+    return bDate - aDate;
+  });
+}
+
+function getFilteredTreatmentRecords() {
+  const searchInput = document.getElementById('treatment-search');
+  const statusFilter = document.getElementById('treatment-status-filter');
+  const searchTerm = (searchInput ? searchInput.value : '').trim().toLowerCase();
+  const filterStatus = normalizeTreatmentStatus(
+    statusFilter ? statusFilter.value : ''
+  );
+
+  return sortTreatmentRecords(
+    treatmentRecords.filter((record) => {
+      const effectiveStatus = getEffectiveTreatmentStatus(record);
+      if (filterStatus && effectiveStatus !== filterStatus) return false;
+      if (!searchTerm) return true;
+
+      const haystack = [
+        record.patientName || '',
+        record.patientPhone || '',
+        record.treatmentTitle || '',
+        record.medication || '',
+        record.notes || '',
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(searchTerm);
+    })
+  );
+}
+
+function updateTreatmentSummary() {
+  const totalEl = document.getElementById('treatments-total-count');
+  const activeEl = document.getElementById('treatments-active-count');
+  const dueEl = document.getElementById('treatments-followup-due-count');
+  const completedEl = document.getElementById('treatments-completed-count');
+
+  let activeCount = 0;
+  let dueCount = 0;
+  let completedCount = 0;
+
+  treatmentRecords.forEach((record) => {
+    const status = getEffectiveTreatmentStatus(record);
+    if (status === 'completed') {
+      completedCount += 1;
+    } else if (status === 'followup_due') {
+      dueCount += 1;
+    } else {
+      activeCount += 1;
+    }
+  });
+
+  if (totalEl) totalEl.textContent = String(treatmentRecords.length);
+  if (activeEl) activeEl.textContent = String(activeCount);
+  if (dueEl) dueEl.textContent = String(dueCount);
+  if (completedEl) completedEl.textContent = String(completedCount);
+}
+
+function renderTreatmentFollowUpList() {
+  const container = document.getElementById('treatment-followup-list');
+  if (!container) return;
+
+  const followUps = sortTreatmentRecords(
+    treatmentRecords.filter(
+      (record) =>
+        getEffectiveTreatmentStatus(record) !== 'completed' && record.followUpDate
+    )
+  ).slice(0, 6);
+
+  container.innerHTML = '';
+
+  if (!followUps.length) {
+    const emptyText = document.createElement('p');
+    emptyText.className = 'request-empty';
+    emptyText.textContent = 'No follow-up reminders yet';
+    container.appendChild(emptyText);
+    return;
+  }
+
+  followUps.forEach((record) => {
+    const wrapper = document.createElement('div');
+    const followUpState = getTreatmentFollowUpState(record);
+    wrapper.className = `treatment-followup-item${
+      followUpState === 'overdue' ? ' overdue' : ''
+    }`;
+
+    const textWrap = document.createElement('div');
+    textWrap.className = 'treatment-followup-text';
+
+    const title = document.createElement('strong');
+    title.textContent = record.patientName || 'Unnamed Patient';
+    textWrap.appendChild(title);
+
+    const details = document.createElement('span');
+    details.textContent = `${record.treatmentTitle || 'Treatment'} | Follow-up: ${formatDate(
+      record.followUpDate,
+      true
+    )}`;
+    textWrap.appendChild(details);
+
+    const helper = document.createElement('span');
+    helper.textContent =
+      followUpState === 'overdue'
+        ? 'Attention needed: follow-up date has passed.'
+        : followUpState === 'due_today'
+        ? 'Follow-up is due today.'
+        : 'Upcoming follow-up scheduled.';
+    textWrap.appendChild(helper);
+
+    wrapper.appendChild(textWrap);
+    wrapper.appendChild(
+      createTreatmentStatusBadge(getEffectiveTreatmentStatus(record))
+    );
+    container.appendChild(wrapper);
+  });
+}
+
+function renderTreatmentsTable(records = getFilteredTreatmentRecords()) {
+  const tableBody = document.getElementById('treatments-table-body');
+  if (!tableBody) return;
+
+  tableBody.innerHTML = '';
+
+  if (!records.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 9;
+    cell.style.textAlign = 'center';
+    cell.textContent = 'No treatment records available';
+    row.appendChild(cell);
+    tableBody.appendChild(row);
+    return;
+  }
+
+  records.forEach((record) => {
+    const row = document.createElement('tr');
+    const values = [
+      formatDate(record.treatmentDate, true),
+      record.patientName || '-',
+      record.patientPhone || '-',
+      record.treatmentTitle || '-',
+      record.medication || '-',
+      record.followUpDate ? formatDate(record.followUpDate, true) : '-',
+    ];
+
+    values.forEach((value) => {
+      const cell = document.createElement('td');
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+
+    const statusCell = document.createElement('td');
+    statusCell.appendChild(
+      createTreatmentStatusBadge(getEffectiveTreatmentStatus(record))
+    );
+    row.appendChild(statusCell);
+
+    const noteCell = document.createElement('td');
+    noteCell.textContent = record.notes || '-';
+    row.appendChild(noteCell);
+
+    const actionCell = document.createElement('td');
+    const actions = document.createElement('div');
+    actions.className = 'request-action-group';
+
+    const toggleButton = document.createElement('button');
+    toggleButton.type = 'button';
+    toggleButton.className = 'btn btn-outline btn-sm';
+    toggleButton.textContent =
+      getEffectiveTreatmentStatus(record) === 'completed'
+        ? 'Reopen'
+        : 'Mark Completed';
+    toggleButton.dataset.action = 'toggle-treatment-status';
+    toggleButton.dataset.id = record.id;
+    actions.appendChild(toggleButton);
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'btn btn-danger btn-sm';
+    deleteButton.textContent = 'Delete';
+    deleteButton.dataset.action = 'delete-treatment-record';
+    deleteButton.dataset.id = record.id;
+    actions.appendChild(deleteButton);
+
+    actionCell.appendChild(actions);
+    row.appendChild(actionCell);
+    tableBody.appendChild(row);
+  });
+}
+
+function loadTreatmentsPage() {
+  const treatmentDateInput = document.getElementById('treatment-date');
+  if (treatmentDateInput && !treatmentDateInput.value) {
+    treatmentDateInput.value = getTodayDateString();
+  }
+
+  updateTreatmentSummary();
+  renderTreatmentFollowUpList();
+  renderTreatmentsTable();
+}
+
+function saveTreatmentRecord(event) {
+  event.preventDefault();
+
+  const patientNameInput = document.getElementById('treatment-patient-name');
+  const patientPhoneInput = document.getElementById('treatment-patient-phone');
+  const treatmentDateInput = document.getElementById('treatment-date');
+  const treatmentTitleInput = document.getElementById('treatment-title');
+  const medicationInput = document.getElementById('treatment-medication');
+  const notesInput = document.getElementById('treatment-notes');
+  const followUpDateInput = document.getElementById('treatment-followup-date');
+  const statusInput = document.getElementById('treatment-status');
+
+  const patientName = patientNameInput ? patientNameInput.value.trim() : '';
+  const treatmentTitle = treatmentTitleInput
+    ? treatmentTitleInput.value.trim()
+    : '';
+  const treatmentDate = treatmentDateInput ? treatmentDateInput.value.trim() : '';
+
+  if (!patientName || !treatmentTitle || !treatmentDate) {
+    showNotification('Enter patient name, treatment, and date', 'error');
+    return;
+  }
+
+  treatmentRecords.unshift({
+    id: generateLocalId('treatment'),
+    patientName,
+    patientPhone: patientPhoneInput ? patientPhoneInput.value.trim() : '',
+    treatmentDate,
+    treatmentTitle,
+    medication: medicationInput ? medicationInput.value.trim() : '',
+    notes: notesInput ? notesInput.value.trim() : '',
+    followUpDate: followUpDateInput ? followUpDateInput.value.trim() : '',
+    status: normalizeTreatmentStatus(statusInput ? statusInput.value : '') || 'active',
+    recordedBy: (currentUser && currentUser.name) || 'Store User',
+    createdAt: new Date().toISOString(),
+  });
+
+  saveToLocalStorage();
+  if (event.target && typeof event.target.reset === 'function') {
+    event.target.reset();
+  }
+  if (treatmentDateInput) treatmentDateInput.value = getTodayDateString();
+  if (statusInput) statusInput.value = 'active';
+
+  loadTreatmentsPage();
+  showNotification('Treatment record saved successfully', 'success');
+}
+
+function toggleTreatmentRecordStatus(recordId) {
+  treatmentRecords = treatmentRecords.map((record) => {
+    if (record.id !== recordId) return record;
+    return {
+      ...record,
+      status:
+        getEffectiveTreatmentStatus(record) === 'completed'
+          ? 'active'
+          : 'completed',
+    };
+  });
+
+  saveToLocalStorage();
+  loadTreatmentsPage();
+  showNotification('Treatment status updated', 'success');
+}
+
+function deleteTreatmentRecord(recordId) {
+  treatmentRecords = treatmentRecords.filter((record) => record.id !== recordId);
+  saveToLocalStorage();
+  loadTreatmentsPage();
+  showNotification('Treatment record removed', 'success');
+}
+
+function filterTreatments() {
+  renderTreatmentsTable(getFilteredTreatmentRecords());
+}
+
 function renderInventoryStatusList(targetId, items, mode) {
   const container = document.getElementById(targetId);
   if (!container) return;
@@ -5226,6 +5634,7 @@ function showPage(pageName) {
     purchases: 'Purchase Management',
     analytics: 'Business Analytics',
     requests: 'Customer Requests & Finished Products',
+    treatments: 'Patient Treatment & Follow-up',
     account: 'My Account',
   };
 
@@ -5248,6 +5657,8 @@ function showPage(pageName) {
     loadAnalytics();
   } else if (pageName === 'requests') {
     loadRequestsPage();
+  } else if (pageName === 'treatments') {
+    loadTreatmentsPage();
   }
 
   if (pageName === 'pos') {
@@ -5442,11 +5853,11 @@ function loadProducts() {
   renderChunk();
 }
 
-async function loadInventory() {
+async function loadInventory(refreshRemote = true) {
   const inventoryLoading = document.getElementById('inventory-loading');
   if (inventoryLoading)
-    inventoryLoading.style.display = isOnline ? 'flex' : 'none';
-  if (isOnline) {
+    inventoryLoading.style.display = refreshRemote && isOnline ? 'flex' : 'none';
+  if (refreshRemote && isOnline) {
     try {
       await DataModule.fetchAllProducts();
     } catch (e) {}
@@ -6411,13 +6822,13 @@ function updateCart() {
                 <div class="cart-item-name">${item.name}</div>
                 <div class="cart-item-price">${formatCurrency(item.price)}</div>
                 <div class="cart-item-qty">
-                    <button onclick="updateQuantity('${
+                    <button type="button" data-action="update-cart-quantity" data-product-id="${
                       item.id
-                    }', -1)">-</button>
+                    }" data-change="-1">-</button>
                     <input type="number" value="${
                       item.quantity
                     }" min="1" readonly>
-                    <button onclick="updateQuantity('${item.id}', 1)">+</button>
+                    <button type="button" data-action="update-cart-quantity" data-product-id="${item.id}" data-change="1">+</button>
                 </div>
             </div>
             <div class="cart-item-total">${formatCurrency(itemTotal)}</div>
@@ -6609,7 +7020,16 @@ function printReceipt() {
                 <title>Receipt - ${settings.storeName}</title>
                 <style>
                     @page { size: auto; margin: 8mm; }
-                    body { font-family: 'Courier New', monospace; padding: 12px; margin: 0; color: #000; }
+                    html, body { background: #fff !important; }
+                    body {
+                        font-family: 'Courier New', monospace;
+                        padding: 12px;
+                        margin: 0;
+                        color: #000;
+                        background: #fff;
+                        -webkit-print-color-adjust: exact;
+                        print-color-adjust: exact;
+                    }
                     .receipt { box-shadow: none; max-width: 100%; padding: 0; }
                     .receipt-header { text-align: center; margin-bottom: 20px; }
                     .receipt-items { margin-bottom: 20px; }
@@ -6624,26 +7044,6 @@ function printReceipt() {
         </html>
     `;
 
-  const printWindow = window.open('', '_blank', 'noopener,noreferrer');
-  if (printWindow && printWindow.document) {
-    printWindow.document.open();
-    printWindow.document.write(printMarkup);
-    printWindow.document.close();
-    const triggerPrint = () => {
-      try {
-        printWindow.focus();
-        printWindow.print();
-      } catch (_) {}
-    };
-    if (typeof printWindow.addEventListener === 'function') {
-      printWindow.addEventListener('load', triggerPrint, { once: true });
-      setTimeout(triggerPrint, 400);
-    } else {
-      setTimeout(triggerPrint, 400);
-    }
-    return;
-  }
-
   const printFrame = document.createElement('iframe');
   printFrame.style.position = 'fixed';
   printFrame.style.right = '0';
@@ -6651,6 +7051,7 @@ function printReceipt() {
   printFrame.style.width = '0';
   printFrame.style.height = '0';
   printFrame.style.border = '0';
+  printFrame.setAttribute('aria-hidden', 'true');
   document.body.appendChild(printFrame);
   const frameDoc =
     printFrame.contentWindow && printFrame.contentWindow.document;
@@ -6662,16 +7063,39 @@ function printReceipt() {
   frameDoc.open();
   frameDoc.write(printMarkup);
   frameDoc.close();
-  setTimeout(() => {
+
+  const cleanup = () => {
+    setTimeout(() => {
+      try {
+        printFrame.remove();
+      } catch (_) {}
+    }, 300);
+  };
+
+  const triggerPrint = () => {
     try {
       printFrame.contentWindow.focus();
       printFrame.contentWindow.print();
     } catch (_) {
       showNotification('Unable to print on this device.', 'error');
     } finally {
-      setTimeout(() => printFrame.remove(), 1000);
+      cleanup();
     }
-  }, 400);
+  };
+
+  if (typeof printFrame.onload !== 'undefined') {
+    printFrame.onload = () => {
+      setTimeout(triggerPrint, 150);
+    };
+  }
+
+  try {
+    if (printFrame.contentWindow) {
+      printFrame.contentWindow.onafterprint = cleanup;
+    }
+  } catch (_) {}
+
+  setTimeout(triggerPrint, 500);
 }
 
 // Product Modal Functions
@@ -6705,7 +7129,20 @@ function getCategoryNameById(id) {
   );
   return c ? c.name : '';
 }
-function openProductModal(product = null) {
+function getCategoryIdForProduct(product) {
+  if (!product) return '';
+  if (product.categoryId) return product.categoryId;
+
+  const matchedCategory = (Array.isArray(categories) ? categories : []).find(
+    (category) =>
+      String(category.name || '').trim().toLowerCase() ===
+      String(product.category || '').trim().toLowerCase()
+  );
+
+  return matchedCategory ? matchedCategory.id : '';
+}
+
+async function openProductModal(product = null) {
   if (!AuthModule.isAdmin()) {
     showNotification('Only admins can add or edit products', 'error');
     return;
@@ -6713,7 +7150,8 @@ function openProductModal(product = null) {
 
   const modalTitle = document.getElementById('modal-title');
   const productForm = document.getElementById('product-form');
-  ensureCategoriesLoaded().then(() => populateCategorySelect());
+  await ensureCategoriesLoaded();
+  populateCategorySelect();
 
   if (product) {
     if (modalTitle) modalTitle.textContent = 'Edit Product';
@@ -6726,13 +7164,7 @@ function openProductModal(product = null) {
 
     if (productNameEl) productNameEl.value = product.name;
     if (productCategoryEl) {
-      const id =
-        product.categoryId ||
-        (Array.isArray(categories) ? categories : []).find(
-          (c) => (c.name || '').toString() === (product.category || '')
-        ) && $1.id ||
-        '';
-      productCategoryEl.value = id;
+      productCategoryEl.value = getCategoryIdForProduct(product);
     }
     if (productPriceEl) productPriceEl.value = product.price;
     if (productStockEl) productStockEl.value = product.stock;
@@ -6815,18 +7247,13 @@ async function saveProduct() {
       dedupeProducts();
       saveToLocalStorage();
     }
-
-    if (isOnline) {
-      products = await DataModule.fetchAllProducts();
-    }
-
     // Check for new alerts after updating products
     checkAndGenerateAlerts();
 
     loadProducts();
 
     if (currentPage === 'inventory') {
-      loadInventory();
+      loadInventory(false);
     }
 
     if (currentPage === 'analytics') {
@@ -6862,14 +7289,25 @@ async function deleteProduct(productId) {
     return;
   }
 
-  const result = await DataModule.deleteProduct(productId);
+  const resultPromise = DataModule.deleteProduct(productId);
+
+  dedupeProducts();
+  saveToLocalStorage();
+  loadProducts();
+
+  if (currentPage === 'inventory') {
+    loadInventory(false);
+  }
+
+  if (currentPage === 'analytics') {
+    loadStockAlerts();
+  }
+
+  const result = await resultPromise;
 
   if (result.success) {
-    if (isOnline) {
-      products = await DataModule.fetchAllProducts();
-    } else {
-      dedupeProducts();
-    }
+    dedupeProducts();
+    saveToLocalStorage();
 
     // Check for new alerts after deleting products
     checkAndGenerateAlerts();
@@ -6877,9 +7315,7 @@ async function deleteProduct(productId) {
     loadProducts();
 
     if (currentPage === 'inventory') {
-      const inventorySearchEl = document.getElementById('inventory-search');
-      if (inventorySearchEl) inventorySearchEl.value = '';
-      loadInventory();
+      loadInventory(false);
     }
 
     if (currentPage === 'analytics') {
@@ -8880,6 +9316,17 @@ const completeSaleBtn = document.getElementById('complete-sale-btn');
 if (completeSaleBtn) {
   completeSaleBtn.addEventListener('click', completeSale);
 }
+if (cartItems) {
+  cartItems.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-action="update-cart-quantity"]');
+    if (!button) return;
+
+    const { productId, change } = button.dataset;
+    if (!productId || !change) return;
+
+    updateQuantity(productId, Number(change));
+  });
+}
 if (paymentMethodSelect) {
   paymentMethodSelect.addEventListener('change', syncCustomerDisplayState);
 }
@@ -9095,6 +9542,34 @@ if (changePasswordForm) {
         toggleCustomerRequest(button.dataset.id);
       } else if (button.dataset.action === 'delete-customer-request') {
         deleteCustomerRequest(button.dataset.id);
+      }
+    });
+  }
+}
+
+// Treatments page event listeners
+{
+  const t1 = document.getElementById('refresh-treatments-btn');
+  if (t1) t1.addEventListener('click', loadTreatmentsPage);
+
+  const t2 = document.getElementById('treatment-record-form');
+  if (t2) t2.addEventListener('submit', saveTreatmentRecord);
+
+  const t3 = document.getElementById('treatment-search');
+  if (t3) t3.addEventListener('input', filterTreatments);
+
+  const t4 = document.getElementById('treatment-status-filter');
+  if (t4) t4.addEventListener('change', filterTreatments);
+
+  const t5 = document.getElementById('treatments-table-body');
+  if (t5) {
+    t5.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button || !button.dataset.id) return;
+      if (button.dataset.action === 'toggle-treatment-status') {
+        toggleTreatmentRecordStatus(button.dataset.id);
+      } else if (button.dataset.action === 'delete-treatment-record') {
+        deleteTreatmentRecord(button.dataset.id);
       }
     });
   }

@@ -1572,7 +1572,21 @@ button:focus {
   margin-bottom: 1.5rem;
 }
 
+.treatments-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
 .requests-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.treatments-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 1rem;
@@ -1653,6 +1667,68 @@ button:focus {
 .request-empty {
   margin: 0;
   color: var(--gray-color);
+}
+
+.treatment-followup-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.treatment-followup-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid #eee;
+  border-left: 4px solid var(--secondary-color);
+  border-radius: 8px;
+  background: #f8fbff;
+}
+
+.treatment-followup-item.overdue {
+  border-left-color: var(--accent-color);
+  background: #fff5f5;
+}
+
+.treatment-followup-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.treatment-followup-text strong {
+  color: var(--dark-color);
+}
+
+.treatment-followup-text span {
+  color: #6c7a89;
+  font-size: 0.9rem;
+}
+
+.treatment-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 110px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.treatment-status-badge.active {
+  color: #175cd3;
+  background: #eff8ff;
+}
+
+.treatment-status-badge.followup_due {
+  color: #b54708;
+  background: #fffaeb;
+}
+
+.treatment-status-badge.completed {
+  color: #027a48;
+  background: #ecfdf3;
 }
 
 .request-badge {
@@ -1769,7 +1845,8 @@ button:focus {
   .expense-summary,
   .purchase-summary,
   .analytics-summary,
-  .requests-summary {
+  .requests-summary,
+  .treatments-summary {
     grid-template-columns: 1fr;
   }
   .page-header {

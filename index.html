@@ -351,6 +351,12 @@
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a href="#" class="nav-link" data-page="treatments">
+                        <i class="fas fa-notes-medical"></i>
+                        <span>Treatments</span>
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a href="#" class="nav-link" data-page="account">
                         <i class="fas fa-user-cog"></i>
                         <span>My Account</span>
@@ -1141,6 +1147,129 @@
                                 <p class="request-empty">No low stock items</p>
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="treatments-page" class="page-content" style="display: none;">
+                <div class="inventory-container">
+                    <div class="inventory-header">
+                        <h3>Patient Treatment & Follow-up</h3>
+                        <button class="btn btn-outline" id="refresh-treatments-btn">
+                            <i class="fas fa-sync"></i> Refresh
+                        </button>
+                    </div>
+
+                    <div class="treatments-summary">
+                        <div class="summary-card">
+                            <h3>Total Records</h3>
+                            <p id="treatments-total-count">0</p>
+                        </div>
+                        <div class="summary-card">
+                            <h3>Active Treatments</h3>
+                            <p id="treatments-active-count">0</p>
+                        </div>
+                        <div class="summary-card">
+                            <h3>Follow-up Due</h3>
+                            <p id="treatments-followup-due-count">0</p>
+                        </div>
+                        <div class="summary-card">
+                            <h3>Completed Cases</h3>
+                            <p id="treatments-completed-count">0</p>
+                        </div>
+                    </div>
+
+                    <div class="treatments-grid">
+                        <div class="request-card">
+                            <div class="table-header">
+                                <h3>Add Treatment Record</h3>
+                            </div>
+                            <form id="treatment-record-form" class="request-form">
+                                <div class="form-group">
+                                    <label for="treatment-patient-name">Patient Name</label>
+                                    <input type="text" id="treatment-patient-name" name="treatment-patient-name" placeholder="Enter patient name" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="treatment-patient-phone">Phone Number</label>
+                                    <input type="text" id="treatment-patient-phone" name="treatment-patient-phone" placeholder="Optional contact number">
+                                </div>
+                                <div class="form-group">
+                                    <label for="treatment-date">Treatment Date</label>
+                                    <input type="date" id="treatment-date" name="treatment-date" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="treatment-title">Treatment / Condition</label>
+                                    <input type="text" id="treatment-title" name="treatment-title" placeholder="Example: Malaria treatment" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="treatment-medication">Medication / Prescription</label>
+                                    <textarea id="treatment-medication" name="treatment-medication" rows="3" placeholder="Record the medicines given"></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label for="treatment-notes">Notes</label>
+                                    <textarea id="treatment-notes" name="treatment-notes" rows="3" placeholder="Symptoms, dosage instructions, observations"></textarea>
+                                </div>
+                                <div class="form-group">
+                                    <label for="treatment-followup-date">Next Follow-up Date</label>
+                                    <input type="date" id="treatment-followup-date" name="treatment-followup-date">
+                                </div>
+                                <div class="form-group">
+                                    <label for="treatment-status">Status</label>
+                                    <select id="treatment-status" name="treatment-status" required>
+                                        <option value="active">Active</option>
+                                        <option value="followup_due">Follow-up Due</option>
+                                        <option value="completed">Completed</option>
+                                    </select>
+                                </div>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-save"></i> Save Treatment Record
+                                </button>
+                            </form>
+                        </div>
+
+                        <div class="request-card">
+                            <div class="table-header">
+                                <h3>Upcoming Follow-ups</h3>
+                            </div>
+                            <div id="treatment-followup-list" class="treatment-followup-list">
+                                <p class="request-empty">No follow-up reminders yet</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="table-container">
+                        <div class="table-header">
+                            <h3>Treatment Log</h3>
+                            <div class="table-actions">
+                                <input type="text" id="treatment-search" name="treatment-search" placeholder="Search patient, treatment, phone...">
+                                <select id="treatment-status-filter" name="treatment-status-filter">
+                                    <option value="">All Statuses</option>
+                                    <option value="active">Active</option>
+                                    <option value="followup_due">Follow-up Due</option>
+                                    <option value="completed">Completed</option>
+                                </select>
+                            </div>
+                        </div>
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Patient</th>
+                                    <th>Phone</th>
+                                    <th>Treatment</th>
+                                    <th>Medication</th>
+                                    <th>Follow-up</th>
+                                    <th>Status</th>
+                                    <th>Notes</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="treatments-table-body">
+                                <tr>
+                                    <td colspan="9" style="text-align: center;">No treatment records available</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>

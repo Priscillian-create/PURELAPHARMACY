@@ -23,7 +23,5 @@ code = code.replace(/session\.user\.user_metadata\?\.name/g, '(session && sessio
 code = code.replace(/session\.user\.user_metadata\?\.role/g, '(session && session.user && session.user.user_metadata && session.user.user_metadata.role)');
 code = code.replace(/localSale\?\.receiptnumber/g, '(localSale && localSale.receiptnumber)');
 code = code.replace(/localSale\?\.receiptNumber/g, '(localSale && localSale.receiptNumber)');
-code = code.replace(/\)\?\.id/g, ') && $1.id');
-
 fs.writeFileSync(scriptPath, code);
 console.log('Replaced custom optional chaining and nullish coalescing.');
